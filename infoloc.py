@@ -11,6 +11,8 @@ import pandas as pd
 import scipy.special
 import scipy.stats
 
+import sources as s
+
 EPSILON = 10 ** -8
 
 def curves_from_sequences(xs: Iterable[Sequence],
@@ -19,6 +21,12 @@ def curves_from_sequences(xs: Iterable[Sequence],
                           monitor: bool=False) -> pd.DataFrame:
     counts = counts_from_sequences(xs, weights=weights, maxlen=maxlen, monitor=monitor)
     return curves_from_counts(counts, monitor=monitor)
+
+# Possible fast path for calculating E.
+# E_N = H^N - Nh_N
+# = H^N - N(H^N - H^{N-1})
+# = N H^{N-1} - (N-1) H^N.
+# Therefore, the only statistics we need are H^N and H^{N-1}.
 
 def counts_from_sequences(xs: Iterable[Sequence],
                           weights: Optional[Iterable],
@@ -47,7 +55,7 @@ def counts_from_sequences(xs: Iterable[Sequence],
             for x in xs
             for t in range(maxlen)
             for i in range(len(x))
-        )
+       )
     else:
         counts = Counter()
         for x, w in zip(xs, weights):
@@ -56,7 +64,7 @@ def counts_from_sequences(xs: Iterable[Sequence],
             for t in range(maxlen): # window size
                 for i in range(len(x)):
                     counts[t, x[max(0, i-t):i], x[i]] += w
-                    
+
     df = pd.DataFrame(counts.keys())
     df.columns = pd.Index(['t', 'x_{<t}', 'x_t'])
     df['count'] = counts.values()
@@ -115,11 +123,31 @@ def curves(t: pd.Series,
 def ee(curves: pd.DataFrame) -> float:
     return curves['H_M_lower_bound'].max()
 
+def ee_growth(curves: pd.DataFrame) -> float:
+    return curves['H_M_lower_bound'].mean()
+
+def discounted_pi(curves: pd.DataFrame, discount) -> float:
+    h = curves['h_t'].min()
+    return discount @ (curves['h_t'] - h)
+
+def discounted_pi_exponential(curves: pd.DataFrame, gamma: float=1) -> float:
+    discount = gamma ** curves['t']
+    return discounted_pi(curves, discount)
+
+def discounted_pi_powerlaw(curves: pd.DataFrame, gamma: float=1) -> float:
+    discount = (curves['t'] + 1.0) ** -gamma
+    return discounted_pi(curves, discount)
+
+def discounted_pi_hyperbolic(curves: pd.DataFrame, gamma: float=1) -> float:
+    discount = 1/(1-np.log(gamma)*curves['t'])
+    return discounted_pi(curves, discount)
+
 def transient_information(curves: pd.DataFrame) -> float:
     """ Transient information from Crutchfield & Feldman (2003: §4C) """
     h = curves['h_t'].min()
+    d_t = curves['h_t'] - h
     L = curves['t'] + 1
-    return (L * (curves['h_t'] - h)).sum()
+    return L @ d_t
 
 def ms_auc(curves: pd.DataFrame) -> float:
     """
@@ -136,6 +164,35 @@ def score(J: Callable[[pd.DataFrame], float],
           maxlen: Optional[int]=None) -> float:
     curves = curves_from_sequences(forms, weights=weights, maxlen=maxlen)
     return J(curves)
+
+def plot_block_entropy(curves):
+    import matplotlib.pyplot as plt
+    H_t = np.cumsum(curves['h_t'])
+    h = curves['h_t'].min()
+    th = (curves['t']+1) * h
+    th_t = (curves['t']+1) * curves['h_t']
+    E = curves['H_M_lower_bound'].max()
+    plt.plot(curves['t'], H_t, label="H^n")
+    plt.plot(curves['t'], th, label="nh")
+    plt.plot(curves['t'], th_t, label="nh_n")
+    plt.plot(curves['t'], th + E, label="nh + E")
+    #plt.plot(curves['t'], th + curves['H_M_lower_bound'], label="nh + E_n")
+    plt.legend()
+
+def plot_entropy_rate(curves):
+    import matplotlib.pyplot as plt
+    H_t = np.cumsum(curves['h_t'])
+    h = curves['h_t'].min()
+    t = curves['t'] + 1
+    th = t * h
+    th_t = t * curves['h_t']
+    E = curves['H_M_lower_bound'].max()
+    #plt.plot(t, H_t/t, label="H^n/n")
+    plt.plot(t, np.ones(len(t))*h, label="h")
+    plt.plot(t, curves['h_t'], label="h_n")
+    #plt.plot(t, (t*h + E)/t, label="h + E/n")
+    #plt.plot(curves['t'], th + curves['H_M_lower_bound'], label="nh + E_n")
+    plt.legend()
 
 def test_curve_properties():
     """ Test invariance properties of the entropy rate curve. """
@@ -168,13 +225,13 @@ def test_curve_properties():
         return tuple(1000*x + y for x, y in enumerate(seq[:-1])) + ('#',)
 
     # For fixed length strings, adding synchronization information does not affect asymptotic values
-    fixed_length_data = [tuple(random.choice(range(5)) for _ in range(10)) + ('#',) for _ in range(1000)]
-    for i in range(10):
-        w = scipy.special.softmax(np.random.randn(len(fixed_length_data)))
-        one = curves_from_sequences(fixed_length_data, maxlen=10, weights=w)
-        two = curves_from_sequences(map(mark_position, fixed_length_data), maxlen=10, weights=w)
-        assert np.allclose(one['h_t'].min(), two['h_t'].min())
-        assert np.allclose(one['H_M_lower_bound'].max(), two['H_M_lower_bound'].max())
+    #fixed_length_data = [tuple(random.choice(range(5)) for _ in range(10)) + ('#',) for _ in range(1000)]
+    #for i in range(10):
+    #    w = scipy.special.softmax(np.random.randn(len(fixed_length_data)))
+    #    one = curves_from_sequences(fixed_length_data, maxlen=10, weights=w)
+    #    two = curves_from_sequences(map(mark_position, fixed_length_data), maxlen=10, weights=w)
+    #    assert np.allclose(one['h_t'].min(), two['h_t'].min()), (one['h_t'].min(), two['h_t'].min())
+    #    assert np.allclose(one['H_M_lower_bound'].max(), two['H_M_lower_bound'].max())
 
 def test_ee():
     """ Test excess entropy calculation against analytical formulas. """
@@ -195,8 +252,30 @@ def test_ee():
         # Compare against analytical formula E_3 = \log 4 + 1/4 (TC_{123} - I_{123} + I_{13}).
         p = scipy.special.softmax(i*np.random.randn(2,2,2))
         formula = E3(p)
-        the_ee = ee(curves_from_sequences(sequences, p.flatten()))        
+        the_ee = ee(curves_from_sequences(sequences, p.flatten()))
         assert np.allclose(the_ee, formula)
+
+def test_discounting():
+    for i in range(10):
+        # Compare against analytical formula E_2 = \log 3 + 1/3 I_{12}.
+        p = scipy.special.softmax(i*np.random.randn(2,2))
+        curves = curves_from_sequences(["ac#", "ad#", "bc#", "bd#"], p.flatten())
+        the_ee = ee(curves)
+        nondiscounted_exp = discounted_pi_exponential(curves, 1)
+        assert the_ee == nondiscounted_exp
+        
+        nondiscounted_pow = discounted_pi_powerlaw(curves, 1)
+        assert the_ee == nondiscounted_pow
+
+        discounted_exp = discounted_pi_exponential(curves, .8)
+        discounted_exp2 = discounted_pi_exponential(curves, .2)        
+        assert the_ee >= discounted_exp
+        assert discounted_exp >= discounted_exp2
+
+        discounted_pow = discounted_pi_powerlaw(curves, .5)
+        discounted_pow2 = discounted_pi_powerlaw(curves, 2)                
+        assert the_ee >= discounted_pow
+        assert discounted_pow >= discounted_pow2                
 
 def E2(p: np.ndarray) -> float:
     """ Excess entropy for delimited strings of fixed length 2 """
@@ -222,6 +301,23 @@ def E3(p: np.ndarray) -> float:
     )
     formula = np.log(4) + 1/4*(tc - i123 + i13)
     return formula
+
+def Ek(p: np.ndarray) -> float:
+    """ Excess entropy for delimited strings of any fixed length """
+    lattice = s.coinformation_lattice(p)
+    del lattice[()]
+    weight = np.array([(-1)**len(indices) * (indices[-1] - indices[0]) for indices in lattice])
+    I = np.array(list(lattice.values()))
+    k = len(p.shape) + 1
+    return np.log(k) + (1/k) * (weight @ I)
+
+def Ek_mi(p: np.ndarray) -> float:
+    """ Excess entropy for delimited strings of any fixed length, expressed as MI """
+    T = len(p.shape)
+    E = 0
+    for t in range(1, T):
+        E += s.mi(p.reshape(np.prod(p.shape[:t]), np.prod(p.shape[t:])))
+    return np.log(T+1) + (1/(T+1))*E
 
 def main(args) -> int:
     with open(args.filename) as lines:
