@@ -43,12 +43,6 @@ def ljust(xs, length, value):
         xs.extend([value]*num_needed)
         return xs
 
-def int_to_char(x, offset=65):
-    return chr(offset + x)
-
-def ints_to_str(ints, offset=65):
-    return "".join(map(int_to_char, ints))
-
 # How many "effective phonemes" are there in a language?
 # This is given by e^h.
 # For example for English orthography (unimorph), h = 1.148 and H = 2.9538
@@ -60,15 +54,11 @@ def ints_to_str(ints, offset=65):
 
 def huffman_lexicon(forms, weights, n, with_delimiter=DEFAULT_DELIMITER):
     codebook = huffman.huffman(weights, n=n)
-    return list(map(with_delimiter.delimit_string, map(ints_to_str, codebook)))
+    return list(map(with_delimiter.delimit_string, map(utils.ints_to_str, codebook)))
 
 def rand_str(V, k):
     ints = [random.choice(range(V)) for _ in range(k)]
-    return ints_to_str(ints)
-
-def all_same(xs):
-    x, *rest = xs
-    return all(r == x for r in rest)
+    return utils.ints_to_str(ints)
 
 def is_contiguous(k, l, perm):
     """ Return whether permutation perm when applied to a string with k components of length l
@@ -85,7 +75,7 @@ def is_contiguous(k, l, perm):
         tuple(i-min(i for i in word) for i in word)
         for k, word in enumerate(segments(perm, breaks))
     ]
-    consistent = all_same(invariant_words)
+    consistent = utils.all_same(invariant_words)
     return contiguous, consistent
 
 def test_is_contiguous():
@@ -122,7 +112,7 @@ def encode_weak_contiguous(ms, codes):
 def word_probabilities(p_Mk, code, encode=encode_contiguous, with_delimiter=DEFAULT_DELIMITER):
     def gen():
         for i, mk in enumerate(itertools.product(*map(range, p_Mk.shape))):
-            yield ints_to_str(encode(mk, code)), p_Mk[mk]
+            yield utils.ints_to_str(encode(mk, code)), p_Mk[mk]
     df = pd.DataFrame(gen())
     df.columns = ['form', 'probability']
     df['form'] = with_delimiter.delimit_array(df['form'])
@@ -139,7 +129,7 @@ def char_gensym(x, _state={}):
     if x in _state:
         return _state[x]
     else:
-        _state[x] = int_to_char(len(_state))
+        _state[x] = utils.int_to_char(len(_state))
         return _state[x]
 
 def identity_code(features):
@@ -161,7 +151,7 @@ def random_systematic_code(meanings, S, l, unique=False, combination_fn=concaten
     # strongly systematic.
     value_set = {feature for feature_bundle in meanings for feature in feature_bundle}
     random_digits = random_code(len(value_set), S, l, unique=unique)
-    codebook = dict(zip(value_set, map(ints_to_str, random_digits)))
+    codebook = dict(zip(value_set, map(utils.ints_to_str, random_digits)))
     return systematic_code(codebook.__getitem__, combination_fn=combination_fn), codebook
 
 def form_probabilities(p, meanings, code, with_delimiter=DEFAULT_DELIMITER):
@@ -175,7 +165,7 @@ def form_probabilities_np(source, code, with_delimiter=DEFAULT_DELIMITER):
     """ code is an array of same-length integers representing symbols """
     def gen():
         for i, m in enumerate(itertools.product(*map(range, source.shape))):
-            yield ints_to_str(m), ints_to_str(code[m]), source[m]
+            yield utils.ints_to_str(m), utils.ints_to_str(code[m]), source[m]
     df = pd.DataFrame(gen())
     df.columns = ['meaning', 'form', 'probability']
     df['form'] = with_delimiter.delimit_array(df['form'])
@@ -214,7 +204,7 @@ def paradigms(num_meanings, num_words):
             else:
                 yield mapping[x]
     sequences = set()                
-    for sequence in cartesian_indices(num_words, num_meanings):
+    for sequence in utils.cartesian_indices(num_words, num_meanings):
         relabeled = tuple(relabel(sequence))
         if max(relabeled) == num_words - 1:
             sequences.add(relabeled)
@@ -222,41 +212,18 @@ def paradigms(num_meanings, num_words):
 
 def uniform_code(M, S):
     uniform_code_len = np.log(N) / np.log(num_signals) # what is N?
-    uniform_code = cartesian_indices(num_signals, int(np.ceil(uniform_code_len)))
+    uniform_code = utils.cartesian_indices(num_signals, int(np.ceil(uniform_code_len)))
     return BROKEN#np.array(list(take(uniform_code, N)))
-
-def cartesian_power(xs, k):
-    xs = list(xs)
-    return itertools.product(*[xs]*k)
-
-def cartesian_indices(V, k):
-    return itertools.product(*[range(V)]*k)
-
-def cartesian_distinct_indices(V, k):
-    for sequence in cartesian_indices(V, k):
-        yield tuple(i*V + x for i, x in enumerate(sequence))
-
-def cartesian_distinct_forms(V, k):
-    numerals = cartesian_indices(V, k)
-    for group in numerals:
-        yield "".join(int_to_char(x+i*V) for i, x in enumerate(group))
-
-def cartesian_forms(V, k):
-    numerals = cartesian_indices(V, k)
-    for group in numerals:
-        yield "".join(map(int_to_char, group))
-
-flat = itertools.chain.from_iterable        
 
 def repeating_blocks(V, k, m, overlapping=True, with_delimiter=DEFAULT_DELIMITER):
     vocab = list(range(V))
     def gen():
-        for vs in cartesian_indices(V, m):
+        for vs in utils.cartesian_indices(V, m):
             parts = [
                 [(1-overlapping)*b*V + vs[b]]*k
                 for b in range(m)
             ]
-            yield with_delimiter.delimit_string("".join(flat(ints_to_str(x) for x in parts)))
+            yield with_delimiter.delimit_string("".join(utils.flatmap(utils.ints_to_str, parts)))
     return pd.DataFrame({'form': list(gen())})
 
 if __name__ == '__main__':
