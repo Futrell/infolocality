@@ -16,20 +16,29 @@ import shuffles as sh
 # (3) Morphological features Case, Number, and Psor. 
 
 # Currently:
-# Finnish
-# Hungarian
-# Turkish
-# Latin
+# Finnish - case, number, person
+# Hungarian - case, number, person -- Hungarian UD (Szeged) has no 2nd person possessors!
+# Turkish - case, number, person
+# Latin - case, number
+# Arabic (sound/broken) - definiteness, case, number
 
 # Candidates:
 # Ancient Greek -- complex, articles, ...
-# Arabic -- need to transliterate, what about gender?
 # Icelandic -- complex...
 
 # No-go:
 # Amharic -- no feats on nouns in UD
 # Chukchi -- no feats
-#
+
+# Fit PCFG to feature distribution? Rules:
+# S -> X Feat
+# S -> Feat X
+# X -> Feat Feat
+# This has the following effect for three features grouped as ((A B) C)
+# 1. I[A:B] same as in the feature distribution.
+# 2. I[A,B:C] = I[X:C] <= \log |X|. If |X|=1, I[A,B:C]=0.
+# So, essentially, this is choosing two features to covary, and controlling the covariance of those two with the third.
+# This does not require really fitting a PCFG.
 
 STEM = "X"
 DELIMITER = "#"
@@ -124,8 +133,10 @@ def convert_ud_um(d):
 def desired_bundles(bundles):
     """ Logical product of all attested features. """
     # TODO: could cause trouble with very spotty features---the optional one needs to be the final one!
-    the_product = itertools.product(*map(set, itertools.zip_longest(*[s.split(";") for s in bundles])))
-    return {";".join(filter(None, bundle)) for bundle in the_product}
+    features = itertools.zip_longest(*[s.split(";") for s in bundles])
+    the_product = itertools.product(*map(set, features))
+    result = {";".join(filter(None, bundle)) for bundle in the_product}
+    return result
 
 def expand_stem(form, k):
     return form.replace(STEM, STEM*k)
@@ -161,7 +172,6 @@ def experiment(
             yield 'nonsys', i, il.curves_from_sequences(nonsys_forms, forms['count'])
             new_forms = sh.shuffle_preserving_length(forms['form'])
             yield 'nonsysl', i, il.curves_from_sequences(new_forms, forms['count'])
-            
     def gen():
         for name, i, df in conditions():
             df['type'] = name
@@ -173,6 +183,14 @@ def experiment(
 # where CASE = {NOM, ACC, GEN, ABL, LOC, DAT}
 # NUMBER = {SG=Sing, PL=Plur}
 # PERSON = {PSS1S, PSS2S, PSS3S, PSS1P, PSS2P, PSS3P}
+
+def reshape_form_data(forms):
+    features = forms['features'].map(lambda s: tuple(s.split(";"))[1:])
+    num_features = features.map(len).max()
+    full_features = features.map(lambda s: s if len(s) == num_features else s + ('!NULL!',)*(num_features-len(s)))
+    df = pd.DataFrame({'features': full_features, 'count': forms['count']}).sort_values(['features'])
+    dimension = [len(set(df['features'].map(lambda f: f[i]))) for i in range(num_features)]
+    return np.array(df['count']).reshape(*dimension)
 
 def run(num_samples=10000):
     # Generate data for Figure 3B
@@ -191,11 +209,18 @@ def run(num_samples=10000):
     
     latin_forms, latin_curves = experiment("/Users/canjo/data/cliqs/ud-treebanks-v2.8/la/all.conllu", "data/lat", num_samples=num_samples) # puella
     latin_curves['lang'] = 'Latin'
-    
+
     hun_forms, hun_curves = experiment("/Users/canjo/data/cliqs/ud-treebanks-v2.8/hu/all.conllu", "data/hun", num_samples=num_samples) # cél
     hun_curves['lang'] = 'Hungarian'
 
-    return pd.concat([turkish_curves, finnish_curves, latin_curves, hun_curves, ara_curves, ara2_curves])
+    return pd.concat([
+        turkish_curves,
+        finnish_curves,
+        latin_curves,
+        hun_curves,
+        ara_curves,
+        ara2_curves,
+    ])
 
 if __name__ == '__main__':
     run().to_csv(sys.stdout)
