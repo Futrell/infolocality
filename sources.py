@@ -9,25 +9,9 @@ import scipy.optimize
 import pandas as pd
 import tqdm
 
+import utils
+
 MK_PATH = "data/generated-MI-distros/generated-MI-distros_%s.txt"
-
-def cartesian_indices(V, k):
-    return itertools.product(*[range(V)]*k)
-
-def the_unique(xs):
-    """ Return the unique value of an iterable of equal values. 
-    Example: the_unique([3,3,3,3]) -> 3
-    Throws ValueError if there is more than one unique value,
-    or if the input iterable is empty.
-    """
-    try:
-        first, *rest = xs
-    except ValueError:
-        raise ValueError("Empty iterable passed to the_unique")
-    for r in rest:
-        if first != r:
-            raise ValueError("Unequal values in iterable passed to the_unique: %s != %s" % (str(first), str(r)))
-    return first
 
 def log_rem(*shape, T=1):
     return scipy.special.log_softmax(1/T*np.random.randn(*shape))
@@ -36,8 +20,8 @@ def rem(*shape, T=1, lam=1):
     return scipy.special.softmax(lam*1/T*np.random.randn(*shape))
 
 def zipf_mandelbrot(N, s=1, q=0):
-    k = np.arange(N) + 1
-    p = 1/(k+q)**s
+    k = np.arange(float(N)) + 1
+    p = (k + q) ** -s
     Z = p.sum()
     return p/Z
 
@@ -107,7 +91,10 @@ def tc(joint):
     return marginals - entropy(joint, axis=None)
 
 def subsets(xs):
-    return itertools.chain.from_iterable(itertools.combinations(xs, r) for r in range(len(xs)+1))
+    return itertools.chain.from_iterable(
+        itertools.combinations(xs, r)
+        for r in range(len(xs)+1)
+    )
 
 def coinformation_lattice(joint):
     # joint is a KxKxK... array of probabilities.
@@ -126,7 +113,10 @@ def coinformation_lattice(joint):
 
 def test_coinformation_lattice():
     # Synergy pattern
-    xor = np.array([[[1, 0], [0, 1]], [[0, 1], [1, 0]]])/4
+    xor = np.array([
+        [[1, 0], [0, 1]],
+        [[0, 1], [1, 0]]
+    ])/4
     lattice = coinformation_lattice(xor)
     results = [
         lattice[()], lattice[(1,)], lattice[(2,)], lattice[(2,)], lattice[0,1], lattice[0,2], lattice[1,2], lattice[0,1,2]
@@ -153,6 +143,25 @@ def test_coinformation_lattice():
         )
         assert all(mi >= -0.0000001 for mi in coinformation_lattice(markov).values())
 
+    # 3-Parity
+    parity3 = np.array([
+        [[[1, 0],    # 000X
+          [0, 1]],   # 001X
+         [[0, 1],    # 010X
+          [1, 0]]],  # 011X
+        [[[0, 1],    # 100X
+          [1, 0]],   # 101X
+         [[1, 0],    # 110X
+          [0, 1]]]   # 111X
+    ])/8
+    lattice = coinformation_lattice(parity3)
+    univariate_results = [lattice[(0,)], lattice[(1,)], lattice[(2,)], lattice[(3,)]]
+    assert np.allclose(univariate_results, np.log(2))
+    assert np.allclose(lattice[(0,1,2,3)], np.log(2))
+    for indices in lattice:
+        if len(indices) == 0 or len(indices) == 2 or len(indices) == 3:
+            assert np.allclose(lattice[indices], 0)
+
 def perturbed_conditional(px, py, perturbation_size=1):
     """
     p(y | x) \propto p(y) exp(perturbation_size * a(x,y)) where a(x,y) ~ Normal.
@@ -168,7 +177,7 @@ def mostly_independent(*Vs, coupling=1, source='zipf', consistent=True, systemat
         ps = [zipf_mandelbrot(V, **kwds) for V in Vs]
     elif source == 'rem':
         if consistent:
-            V = the_unique(Vs)
+            V = utils.the_unique(Vs)
             p = rem(V, **kwds)
             ps = [p for _ in range(len(Vs))]
         else:
@@ -206,7 +215,7 @@ def dependents(V, k, coupling=1, source='rem', consistent=True, **kwds):
     ])
     mis = [mi(h[:, None] * conditional) for conditional in conditionals]
     def gen():
-        for configuration in cartesian_indices(V, k+1):
+        for configuration in utils.cartesian_indices(V, k+1):
             d = {'h': ('h', configuration[0])}
             d |= {'d%d' % i : d for i, d in enumerate(configuration[1:])}
             p = h[configuration[0]]
@@ -238,8 +247,8 @@ def astarn(num_A, num_N, num_classes=1, p_halt=.5, maxlen=4, source='rem', coupl
             d = {'n': n, 'p': N[n]}
             for k in range(maxlen):
                 p_k = (1-p_halt)**k * (p_halt if k <= maxlen else 1) / num_classes
-                for classes in cartesian_indices(num_classes, k):
-                    for adjectives in cartesian_indices(num_A, k):
+                for classes in utils.cartesian_indices(num_classes, k):
+                    for adjectives in utils.cartesian_indices(num_A, k):
                         d = {'n': (n,)}
                         d |= {str(i) : (c,a) for i, (c, a) in enumerate(zip(classes, adjectives))}
                         p = N[n] * p_k * np.prod([ANs[c,n,a] for c, a in zip(classes, adjectives)])
