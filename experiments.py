@@ -26,7 +26,7 @@ DEFAULT_DELIMITER = utils.RightDelimiter()
 def fusion_advantage(mi=1/2):
     p = s.mi_mix(mi)
     mi = s.mi(p.reshape(2,2))
-    agglutinative = list(c.cartesian_distinct_forms(2, 2))
+    agglutinative = list(utils.cartesian_distinct_forms(2, 2))
     fusional = agglutinative.copy()
     fusional[-1], fusional[-2] = fusional[-2], fusional[-1]
     agglutinative_curve = il.curves_from_sequences(agglutinative, weights=p)
@@ -40,7 +40,7 @@ def fusion_advantage(mi=1/2):
 def agglutination_advantage(mi=1/2):
     p = s.product_distro(s.flip(1/2), s.mi_mix(mi))
     mi = s.mi(p.reshape(2*2,2))
-    agglutinative = list(c.cartesian_distinct_forms(2, 3))
+    agglutinative = list(utils.cartesian_distinct_forms(2, 3))
     fusionalgood = agglutinative.copy()
     fusionalgood[2], fusionalgood[3] = fusionalgood[3], fusionalgood[2]
     fusionalgood[6], fusionalgood[7] = fusionalgood[7], fusionalgood[6]
@@ -71,7 +71,7 @@ def demonstrate_separation_advantage(num_meanings=100,
     source = s.factor(flat_source, num_meanings, num_meanings_per_word)
     code = c.random_code(num_meanings, num_signals, num_signals_per_morpheme)
     signal = c.word_probabilities(source, code, with_delimiter=with_delimiter, marginalize=False)
-    meanings = c.cartesian_indices(num_meanings, num_meanings_per_word)
+    meanings = utils.cartesian_indices(num_meanings, num_meanings_per_word)
     signal['m'] = list(meanings)
     for i in range(num_meanings_per_word):
         signal[i] = signal['m'].map(lambda x: x[i])
@@ -232,10 +232,6 @@ def strong_combinatoriality_sweep(
                 yield df
     return pd.concat(list(gen()))
 
-def star_upto(V, K):
-    for k in range(1, K+1):
-        yield from s.cartesian_indices(V, k)
-
 def strong_combinatoriality_variable(
         num_morphemes=4,
         morpheme_rate=.5,
@@ -258,7 +254,7 @@ def strong_combinatoriality_variable(
     elif source == 'rem':
         morpheme_source = s.rem(num_morphemes, **kwds)
 
-    meanings = list(star_upto(num_morphemes, maxlen))
+    meanings = list(utils.star_upto(num_morphemes, maxlen))
     unnormalized_source = np.array([
         morpheme_rate**len(m) * np.prod(morpheme_source[list(m)])
         for m in meanings
@@ -1404,8 +1400,20 @@ def aanaa(S=50, l=1, with_delimiter=DEFAULT_DELIMITER):
     return pd.concat([curves, curves2, curves3, curves4, curves5, curves6, curves7]), mis
 
 
-def frequent_fusion_irregularity(V, k, S=None, l=2, coupling=1, how_many=2, with_delimiter=True, **kwds):
-    """ Minimizing E does *NOT* predict irregularity for frequent forms """
+def frequent_fusion_irregularity(V=10, k=2, S=None, l=2, coupling=0, how_many=2, with_delimiter=DEFAULT_DELIMITER, **kwds):
+    """
+    Input:
+    V: Number of values per features.
+    k: Number of features:
+    S: Alphabet size (by default = V).
+    l: Morpheme length.
+    how_many: How many forms to make irregular.
+
+    Output:
+    1. Dataframe of entropy rate curves for different languages.
+    2. The morpheme code used.
+    3. The holistic code used.
+    """
     # would it predict fusion for high PMI forms?
     assert how_many >= 1
     if S is None:
@@ -1415,7 +1423,11 @@ def frequent_fusion_irregularity(V, k, S=None, l=2, coupling=1, how_many=2, with
     holistic = c.random_code(V**k, S, l*k, unique=True)
     L = V**k
     def gen():
-        forms = c.word_probabilities(source.reshape(*(V,)*k), codes, encode=c.encode_weak_contiguous, with_delimiter=with_delimiter).sort_values('probability', ascending=False, ignore_index=True)
+        forms = c.word_probabilities(
+            source.reshape(*(V,)*k),
+            codes,
+            encode=c.encode_weak_contiguous,
+            with_delimiter=with_delimiter).sort_values('probability', ascending=False, ignore_index=True)
         the_forms = forms['form']
         curves = il.curves_from_sequences(the_forms, forms['probability'])
         curves['type'] = 'systematic'
@@ -1432,7 +1444,7 @@ def frequent_fusion_irregularity(V, k, S=None, l=2, coupling=1, how_many=2, with
         curves['type'] = 'irrbottom'
         yield curves
 
-        hol_forms = c.form_probabilities_np(source, holistic, with_delimiter=with_delimiter)['form']
+        hol_forms = c.form_probabilities_np(source.flatten(), holistic, with_delimiter=with_delimiter)['form']
         curves = il.curves_from_sequences(hol_forms, forms['probability'])
         curves['type'] = 'holistic'
         yield curves
@@ -1449,7 +1461,15 @@ def frequent_fusion_irregularity(V, k, S=None, l=2, coupling=1, how_many=2, with
 
     return pd.concat(list(gen())), codes, holistic
 
-def paradigmatic32(redundancy=1, coupling=0, with_delimiter=True, **kwds):
+# Stylized facts about morphology:
+# - There is a tradeoff of paradigm size and systematicity. Local systematic paradigms
+#   (eg Turkish) can be much larger than nonsystematic paradigms (eg Latin). This
+#   encompasses a tradeoff between paradigm size and irregularity.
+# - Naturalness: The set of distinctions for a feature is not contingent on the value of another feature.
+# - There is a tradeoff between frequency and irregularity / suppletion.
+# - 
+
+def paradigmatic32(redundancy=1, coupling=0, with_delimiter=DEFAULT_DELIMITER, **kwds):
     """ compare natural vs unnatural paradigm shapes. works with redundancy > 1 """
     # kind of works with redundancy=3, but different entropy rates
     source, meanings = s.mostly_independent(3, 2, coupling=coupling, **kwds) # 3x2
@@ -1492,37 +1512,64 @@ def paradigmatic32(redundancy=1, coupling=0, with_delimiter=True, **kwds):
         yield curves        
     return pd.concat(list(gen()))
 
-def paradigm_size_effect(A_min=2, A_max=10, B=2, S=None, l=1, with_delimiter=True, num_samples=100, coupling=.1, **kwds):
-    """ Works with low coupling. holistic increases with size; systematic stays constant. """
+def paradigm_size_effect(
+        A_min=2,
+        A_max=10,
+        B=2,
+        S=None,
+        l=1,
+        with_delimiter=DEFAULT_DELIMITER,
+        num_source_samples=1,
+        num_code_samples=1,
+        num_baseline_samples=100,
+        coupling=0,
+        **kwds):
+    """
+    Inputs:
+    A_min, A_max: Constraints on number of values for first feature (eg, case).
+    B: Number of values for second feature (eg, number).
+    S: Alphabet size.
+    l: Length per morpheme.
+
+    Outputs:
+    Dataframe of entropy rate curves for paradigms with numbers of features A.
+
+    Works with low coupling. Holistic EE increases with size; systematic stays constant.
+    """
     if S is None:
         S = A_max * B
-    systematic_A = c.random_code(A_max, S, l, unique=True)
-    systematic_B = c.random_code(B, S, l, unique=True)
     # need to control entropy rate at each A...
     def gen():
-        for A in tqdm.tqdm(range(A_min, A_max + 1)):
-            source, meanings = s.mostly_independent(A, B, coupling=coupling, **kwds)
-            systematic = c.word_probabilities(
-                source,
-                [systematic_A, systematic_B],
-                encode=c.encode_weak_contiguous,
-                with_delimiter=with_delimiter
-            )
-            curves = il.curves_from_sequences(systematic['form'], systematic['probability'])
-            curves['type'] = 'systematic'
-            curves['A'] = A
-            curves['sample'] = 0
-            yield curves[curves['t'] == curves['t'].max()]
+        for j in tqdm.tqdm(range(num_code_samples)):
+            systematic_A = c.random_code(A_max, S, l, unique=True)
+            systematic_B = c.random_code(B, S, l, unique=True)
+            
+            for A in range(A_min, A_max + 1):
+                for k in range(num_source_samples):
+                    source, meanings = s.mostly_independent(A, B, coupling=coupling, **kwds)
+                    systematic = c.word_probabilities(
+                        source,
+                        [systematic_A, systematic_B],
+                        encode=c.encode_weak_contiguous,
+                        with_delimiter=with_delimiter,
+                    )
+                    curves = il.curves_from_sequences(systematic['form'], systematic['probability'])
+                    curves['type'] = 'systematic'
+                    curves['A'] = A
+                    curves['code_sample'] = j
+                    curves['source_sample'] = k
+                    curves['baseline_sample'] = 0
+                    yield curves
 
-            for i in range(num_samples):
-
-                # make holistic equivalent by permuting the systematic code
-                systematic['holistic'] = np.random.permutation(systematic['form'])
-                curves = il.curves_from_sequences(systematic['holistic'], systematic['probability'])
-                curves['type'] = 'holistic'
-                curves['sample'] = i + 1
-                curves['A'] = A
-                yield curves[curves['t'] == curves['t'].max()]
+                    for i in range(num_baseline_samples):
+                        
+                        # make holistic equivalent by permuting the systematic code
+                        systematic['holistic'] = np.random.permutation(systematic['form'])
+                        curves = il.curves_from_sequences(systematic['holistic'], systematic['probability'])
+                        curves['type'] = 'holistic'
+                        curves['baseline_sample'] = i + 1
+                        curves['A'] = A
+                        yield curves
 
     return pd.concat(list(gen()))
 
