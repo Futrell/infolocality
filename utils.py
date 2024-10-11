@@ -3,7 +3,6 @@ import random
 import operator
 import itertools
 import functools
-from collections import defaultdict
 from typing import *
 
 import numpy as np
@@ -16,6 +15,9 @@ flat = itertools.chain.from_iterable
 
 T = TypeVar("T", bound=Any)
 
+def flatmap(f, *xss):
+    return flat(map(f, *xss))
+
 def shuffled(xs: Iterable[T]) -> List[T]:
     xs = list(xs)
     random.shuffle(xs)
@@ -24,13 +26,56 @@ def shuffled(xs: Iterable[T]) -> List[T]:
 def first(xs: Iterable[T]) -> T:
     return next(iter(xs))
 
-def is_monotonically_increasing(xs: np.ndarray) -> bool:
+def is_monotonically_increasing(xs: Sequence) -> bool:
     return (np.diff(xs) > -EPSILON).all()
 
-def the_only(xs):
+def all_same(xs: Iterable) -> bool:
+    x, *rest = xs
+    return all(r == x for r in rest)
+
+def the_only(xs: Iterable[T]) -> T:
     """ Return the single value of a one-element iterable """
     x, = xs
     return x
+
+def the_unique(xs: Iterable[T]) -> T:
+    """ Return the unique value of an iterable of equal values. 
+    Example: the_unique([3,3,3,3]) -> 3
+    """
+    first, *rest = xs
+    assert all(r == first for r in rest)
+    return first
+
+def cartesian_indices(V: int, k: int) -> Iterator[Tuple[int]]:
+    return itertools.product(*[range(V)]*k)
+
+def cartesian_power(xs: T, k: int) -> Iterator[Tuple[T]]:
+    xs = list(xs)
+    return itertools.product(*[xs]*k)
+
+def cartesian_distinct_indices(V: int, k: int) -> Iterator[Tuple[int]]:
+    for sequence in cartesian_indices(V, k):
+        yield tuple(i*V + x for i, x in enumerate(sequence))
+
+def cartesian_distinct_forms(V: int, k: int) -> Iterator[str]:
+    numerals = cartesian_indices(V, k)
+    for group in numerals:
+        yield "".join(int_to_char(x+i*V) for i, x in enumerate(group))
+
+def cartesian_forms(V: int, k: int) -> Iterable[str]:
+    numerals = cartesian_indices(V, k)
+    for group in numerals:
+        yield "".join(map(int_to_char, group))
+
+def star_upto(V: int, k: int) -> Iterable[Tuple[int]]:
+    for i in range(1, k+1):
+        yield from utils.cartesian_indices(V, i)
+
+def int_to_char(x: int, offset: int=65) -> str:
+    return chr(offset + x)
+
+def ints_to_str(ints: Iterable[int], offset: int=65) -> str:
+    return "".join(map(int_to_char, ints))
 
 def write_dicts(file, lines):
     lines_iter = iter(lines)
@@ -104,6 +149,23 @@ def sequence_transformer(f):
         return restore(result)
     return wrapped
 
+def padded_sliding(s: Iterable[T], window_size: int) -> Iterable[Tuple[T]]:
+    assert window_size > 0
+    n = len(s)
+    for i in range(n + window_size - 1):
+        left_padding = max(0, window_size - 1 - i)
+        right_padding = max(0, (i + 1) - n)
+        window = s[max(0, i - (window_size - 1)): min(n, i + 1)]
+        yield left_padding, window, right_padding
+
+def test_padded_sliding():
+    assert list(padded_sliding("cat", 1)) == [(0, 'c', 0), (0, 'a', 0), (0, 't', 0)]
+    assert list(padded_sliding("cat", 2)) == [(1, 'c', 0), (0, 'ca', 0), (0, 'at', 0), (0, 't', 1)]
+    assert list(padded_sliding("cat", 3)) == [(2, 'c', 0), (1, 'ca', 0), (0, 'cat', 0), (0, 'at', 1), (0, 't', 2)]
+    assert list(padded_sliding("", 1)) == []
+    assert list(padded_sliding("", 2)) == [(1, '', 1)]
+    assert list(padded_sliding(tuple('cat'), 2)) == [(1, ('c',), 0), (0, ('c', 'a'), 0), (0, ('a', 't'), 0), (0, ('t',), 1)]
+    
 def delimited_sequence_transformer(f):
     """ Return f' which applies f to a sequence preserving type and delimitation. """
     def wrapped(s, *a, **k):
