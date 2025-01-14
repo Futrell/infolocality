@@ -46,14 +46,14 @@ def the_unique(xs: Iterable[T]) -> T:
     assert all(r == first for r in rest)
     return first
 
-def cartesian_indices(V: int, k: int) -> Iterator[Tuple[int]]:
+def cartesian_indices(V: int, k: int) -> Iterator[Sequence[int]]:
     return itertools.product(*[range(V)]*k)
 
-def cartesian_power(xs: T, k: int) -> Iterator[Tuple[T]]:
+def cartesian_power(xs, k: int) -> Iterator[Sequence]:
     xs = list(xs)
     return itertools.product(*[xs]*k)
 
-def cartesian_distinct_indices(V: int, k: int) -> Iterator[Tuple[int]]:
+def cartesian_distinct_indices(V: int, k: int) -> Iterator[Sequence[int]]:
     for sequence in cartesian_indices(V, k):
         yield tuple(i*V + x for i, x in enumerate(sequence))
 
@@ -67,9 +67,9 @@ def cartesian_forms(V: int, k: int) -> Iterable[str]:
     for group in numerals:
         yield "".join(map(int_to_char, group))
 
-def star_upto(V: int, k: int) -> Iterable[Tuple[int]]:
+def star_upto(V: int, k: int) -> Iterable[Sequence[int]]:
     for i in range(1, k+1):
-        yield from utils.cartesian_indices(V, i)
+        yield from cartesian_indices(V, i)
 
 def int_to_char(x: int, offset: int=65) -> str:
     return chr(offset + x)
@@ -95,7 +95,7 @@ def write_dfs(file, dfs):
 
 
 class Delimiter:
-    def parts(self, x: T) -> Iterable[Union[str, T]]:
+    def parts(self, x) -> Iterable:
         raise NotImplementedError
 
     def delimit(self, x: Sequence) -> Sequence:
@@ -104,26 +104,26 @@ class Delimiter:
     def delimit_string(self, x: str) -> str:
         return "".join(self.parts(x))
 
-    def delimit_sequence(self, x: Sequence[T]) -> Tuple[Union[str, T]]:
+    def delimit_sequence(self, x: Sequence) -> Tuple:
         return tuple(flat(self.parts(x)))
 
     def delimit_array(self, x: pd.Series) -> pd.Series:
         return functools.reduce(operator.add, self.parts(x))
 
 class LeftDelimiter(Delimiter):
-    def parts(self, x: T) -> List[Union[str, T]]:
+    def parts(self, x) -> List:
         return [DELIMITER, x]
 
 class RightDelimiter(Delimiter):
-    def parts(self, x: T) -> List[Union[str, T]]:    
+    def parts(self, x) -> List:
         return [x, DELIMITER]
 
 class BothDelimiter(Delimiter):
-    def parts(self, x: T) -> List[Union[str, T]]:        
+    def parts(self, x) -> List:
         return [DELIMITER, x, DELIMITER]
 
 class NullDelimiter(Delimiter):
-    def parts(self, x: T) -> List[T]:
+    def parts(self, x) -> List:
         return [x]
 
 def restorer(x: Sequence) -> Callable[[Iterable], Sequence]:
@@ -149,7 +149,7 @@ def sequence_transformer(f):
         return restore(result)
     return wrapped
 
-def padded_sliding(s: Iterable[T], window_size: int) -> Iterable[Tuple[T]]:
+def padded_sliding(s: Sequence, window_size: int) -> Iterable[Sequence]:
     assert window_size > 0
     n = len(s)
     for i in range(n + window_size - 1):
