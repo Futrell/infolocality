@@ -13,4 +13,4 @@ The file `experiments.py` runs remaining experiments from the main text.
 
 The file `process_ud.sh`, when run in the directory containing UD corpora, will create the concatenated corpus files which are read in by the other files.
 
-System requirements: Python 3.11+, `numpy`, `pandas`, `scipy`, `matplotlib`, `tqdm`, `plotnine`, `connlu`. 
+System requirements: Python 3.11+, `numpy`, `pandas`, `scipy`, `matplotlib`, `tqdm`, `plotnine`, `conllu`. 
